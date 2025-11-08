@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import Apple from "../assets/apple.png";
+import Apple from "../assets/Apple.png";
 import Kiwi from "../assets/kiwi.png";
 import Leaf from "../assets/leaf.png";
 import Lemon from "../assets/lemon.png";

@@ -4,9 +4,6 @@ import FoodCard from "../components/FoodCard";
 import { motion } from "framer-motion";
 import { IoSearch } from "react-icons/io5";
 
-// ✅ Use Vite environment variable (no quotes!)
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
-
 const Menu = () => {
   const [foods, setFoods] = useState([]);
   const [filteredFoods, setFilteredFoods] = useState([]);
@@ -15,15 +12,15 @@ const Menu = () => {
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [suggestions, setSuggestions] = useState([]);
 
-  // ✅ Fetch all foods from backend
+  // ✅ Fetch all foods
   useEffect(() => {
     const fetchFoods = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/api/foods`);
+        const res = await axios.get("http://localhost:8000/api/foods");
         setFoods(res.data);
         setFilteredFoods(res.data);
       } catch (err) {
-        console.error("❌ Error fetching menu:", err);
+        console.error("Error fetching menu:", err);
       }
     };
     fetchFoods();
@@ -42,14 +39,14 @@ const Menu = () => {
   useEffect(() => {
     let updatedFoods = [...foods];
 
-    // Filter by type
+    // Type filter
     if (typeFilter !== "All") {
       updatedFoods = updatedFoods.filter(
         (f) => f.type.toLowerCase() === typeFilter.toLowerCase()
       );
     }
 
-    // Filter by category
+    // Category filter
     if (categoryFilter !== "All") {
       updatedFoods = updatedFoods.filter(
         (f) => f.category.toLowerCase() === categoryFilter.toLowerCase()
@@ -66,7 +63,7 @@ const Menu = () => {
     setFilteredFoods(updatedFoods);
   }, [typeFilter, categoryFilter, searchQuery, foods]);
 
-  // ✅ Live search suggestions
+  // ✅ Live suggestions for search
   const handleSearchChange = (e) => {
     const query = e.target.value;
     setSearchQuery(query);

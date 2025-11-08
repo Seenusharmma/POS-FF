@@ -3,9 +3,6 @@ import axios from "axios";
 import { AuthContext } from "../context/authContext";
 import toast, { Toaster } from "react-hot-toast";
 
-// ✅ Load backend API base URL from .env (with fallback)
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
-
 const OrderHistory = () => {
   const { user } = useContext(AuthContext);
   const [orders, setOrders] = useState([]);
@@ -16,17 +13,16 @@ const OrderHistory = () => {
     if (!user) return;
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/api/orders`);
+      const res = await axios.get("http://localhost:8000/api/orders");
       const userOrders = res.data.filter(
         (o) => o.userEmail === user.email && o.status === "Completed"
       );
       setOrders(userOrders.reverse());
     } catch (err) {
       toast.error("Failed to fetch order history!");
-      console.error("❌ Error fetching order history:", err);
-    } finally {
-      setLoading(false);
+      console.error(err);
     }
+    setLoading(false);
   };
 
   useEffect(() => {

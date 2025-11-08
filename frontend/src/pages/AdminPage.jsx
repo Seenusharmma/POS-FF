@@ -20,10 +20,12 @@ const AdminPage = () => {
   const [preview, setPreview] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
   const [highlightedOrder, setHighlightedOrder] = useState(null);
   const audioRef = useRef(null);
 
-  // 🧠 Fetch all data (foods + orders)
+  // ✅ Fetch all foods and orders
   const getAllData = async () => {
     try {
       const [foodsRes, ordersRes] = await Promise.all([
@@ -38,13 +40,12 @@ const AdminPage = () => {
     }
   };
 
+  // ✅ Initialize Socket.IO
   useEffect(() => {
     getAllData();
 
     socket.on("newOrderPlaced", (newOrder) => {
-      toast.success(`🆕 New Order: ${newOrder.foodName} (Table ${newOrder.tableNumber})`, {
-        position: "bottom-right",
-      });
+      toast.success(`🆕 New Order: ${newOrder.foodName} (Table ${newOrder.tableNumber})`);
       playSound();
       setOrders((prev) => [newOrder, ...prev]);
       setHighlightedOrder(newOrder._id);
@@ -53,21 +54,33 @@ const AdminPage = () => {
 
     socket.on("orderStatusChanged", (updatedOrder) => {
       setOrders((prev) =>
-        prev.map((o) => (o._id === updatedOrder._id ? { ...o, status: updatedOrder.status } : o))
+        prev.map((o) =>
+          o._id === updatedOrder._id ? { ...o, status: updatedOrder.status } : o
+        )
       );
     });
 
+    socket.on("newFoodAdded", (newFood) => {
+      setFoods((prev) => [newFood, ...prev]);
+      toast.success(`🍛 New Food Added: ${newFood.name}`);
+    });
+
     socket.on("foodUpdated", (updatedFood) => {
-      setFoods((prev) =>
-        prev.map((f) => (f._id === updatedFood._id ? updatedFood : f))
-      );
-      toast(`🍽️ Menu updated: ${updatedFood.name}`, { icon: "🔄", position: "top-right" });
+      setFoods((prev) => prev.map((f) => (f._id === updatedFood._id ? updatedFood : f)));
+      toast(`🔄 Updated: ${updatedFood.name}`, { icon: "🍽️" });
+    });
+
+    socket.on("foodDeleted", (id) => {
+      setFoods((prev) => prev.filter((f) => f._id !== id));
+      toast.error("❌ Food deleted");
     });
 
     return () => {
       socket.off("newOrderPlaced");
       socket.off("orderStatusChanged");
+      socket.off("newFoodAdded");
       socket.off("foodUpdated");
+      socket.off("foodDeleted");
     };
   }, []);
 
@@ -78,30 +91,51 @@ const AdminPage = () => {
     }
   };
 
-  const handleChange = (e) => setFoodForm({ ...foodForm, [e.target.name]: e.target.value });
+  const handleChange = (e) =>
+    setFoodForm({ ...foodForm, [e.target.name]: e.target.value });
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     setImage(file);
-    setPreview(URL.createObjectURL(file));
+    setPreview(file ? URL.createObjectURL(file) : null);
   };
 
-  // ✅ Save or update food (Cloudinary handled by backend)
+  // ✅ Save or update food (Cloudinary handled in backend)
   const saveFood = async () => {
+    if (!foodForm.name || !foodForm.price) {
+      toast.error("⚠️ Please fill out name and price fields");
+      return;
+    }
+    if (isNaN(foodForm.price)) {
+      toast.error("💰 Price must be a valid number!");
+      return;
+    }
+
     try {
       const formData = new FormData();
       Object.entries(foodForm).forEach(([key, val]) => formData.append(key, val));
       if (image) formData.append("image", image);
 
+      setIsUploading(true);
+      setUploadProgress(0);
+
       let res;
       if (editMode) {
         res = await axios.put(`${API_BASE}/api/foods/${editId}`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (e) => {
+            const percent = Math.round((e.loaded * 100) / e.total);
+            setUploadProgress(percent);
+          },
         });
         toast.success("✅ Food updated successfully!");
       } else {
         res = await axios.post(`${API_BASE}/api/foods`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (e) => {
+            const percent = Math.round((e.loaded * 100) / e.total);
+            setUploadProgress(percent);
+          },
         });
         toast.success("✅ Food added successfully!");
       }
@@ -112,21 +146,19 @@ const AdminPage = () => {
     } catch (error) {
       console.error("❌ Error saving food:", error);
       toast.error("Failed to save food");
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
   const resetForm = () => {
-    setFoodForm({
-      name: "",
-      category: "",
-      type: "",
-      price: "",
-      available: true,
-    });
+    setFoodForm({ name: "", category: "", type: "", price: "", available: true });
     setImage(null);
     setPreview(null);
     setEditMode(false);
     setEditId(null);
+    setUploadProgress(0);
   };
 
   const editFood = (food) => {
@@ -137,7 +169,7 @@ const AdminPage = () => {
       price: food.price,
       available: food.available,
     });
-    setPreview(food.image || null);
+    setPreview(food.image?.url || food.image || null);
     setEditMode(true);
     setEditId(food._id);
   };
@@ -146,7 +178,8 @@ const AdminPage = () => {
     if (!window.confirm("Delete this food item?")) return;
     try {
       await axios.delete(`${API_BASE}/api/foods/${id}`);
-      toast.success("Food deleted successfully!");
+      socket.emit("foodDeleted", id);
+      toast.success("🗑 Food deleted successfully!");
       getAllData();
     } catch {
       toast.error("Failed to delete food");
@@ -160,7 +193,9 @@ const AdminPage = () => {
         prev.map((f) => (f._id === id ? { ...f, available: res.data.available } : f))
       );
       socket.emit("foodUpdated", res.data);
-      toast.success(`${res.data.name} is now ${res.data.available ? "Available" : "Out of Stock"}`);
+      toast.success(
+        `${res.data.name} is now ${res.data.available ? "Available" : "Out of Stock"}`
+      );
     } catch {
       toast.error("Failed to update availability");
     }
@@ -190,7 +225,7 @@ const AdminPage = () => {
         👨‍🍳 Admin Dashboard
       </h2>
 
-      {/* Add/Edit Food Section */}
+      {/* 🧾 Add/Edit Food Section */}
       <div className="bg-white shadow-lg rounded-lg p-4 sm:p-6 mb-10">
         <h3 className="font-semibold text-lg sm:text-xl mb-4 text-gray-800">
           {editMode ? "✏️ Edit Food" : "➕ Add New Food"}
@@ -220,6 +255,8 @@ const AdminPage = () => {
           />
           <input
             name="price"
+            type="number"
+            min="0"
             value={foodForm.price}
             onChange={handleChange}
             placeholder="Price ₹"
@@ -230,7 +267,9 @@ const AdminPage = () => {
             <input
               type="checkbox"
               checked={foodForm.available}
-              onChange={(e) => setFoodForm({ ...foodForm, available: e.target.checked })}
+              onChange={(e) =>
+                setFoodForm({ ...foodForm, available: e.target.checked })
+              }
             />
           </div>
           <input
@@ -243,18 +282,36 @@ const AdminPage = () => {
             <img
               src={preview}
               alt="Preview"
-              onError={(e) => (e.target.src = "https://placehold.co/200x150?text=No+Image")}
               className="mt-2 w-32 h-24 object-cover rounded-lg border"
             />
           )}
         </div>
 
+        {/* ✅ Upload Progress Bar */}
+        {isUploading && (
+          <div className="w-full bg-gray-200 rounded-full h-3 mt-4">
+            <div
+              className="bg-green-600 h-3 rounded-full transition-all duration-200"
+              style={{ width: `${uploadProgress}%` }}
+            ></div>
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             onClick={saveFood}
-            className={`${editMode ? "bg-blue-600" : "bg-green-600"} text-white px-5 py-2 rounded w-full sm:w-auto`}
+            disabled={isUploading}
+            className={`${
+              editMode ? "bg-blue-600" : "bg-green-600"
+            } text-white px-5 py-2 rounded w-full sm:w-auto ${
+              isUploading ? "opacity-60 cursor-not-allowed" : ""
+            }`}
           >
-            {editMode ? "Update Food" : "Add Food"}
+            {isUploading
+              ? `Uploading... ${uploadProgress}%`
+              : editMode
+              ? "Update Food"
+              : "Add Food"}
           </button>
           {editMode && (
             <button
@@ -267,9 +324,11 @@ const AdminPage = () => {
         </div>
       </div>
 
-      {/* Food List */}
+      {/* ✅ Food List */}
       <div className="mb-10">
-        <h3 className="text-lg sm:text-xl font-bold mb-3 text-gray-800">All Foods</h3>
+        <h3 className="text-lg sm:text-xl font-bold mb-3 text-gray-800">
+          🍔 All Foods
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {foods.map((food) => (
             <div
@@ -278,25 +337,30 @@ const AdminPage = () => {
             >
               <img
                 src={
-                  food.image && food.image.startsWith("http")
-                    ? food.image
-                    : "https://placehold.co/200x150?text=No+Image"
+                  food.image?.url ||
+                  "https://placehold.co/300x200?text=No+Image"
                 }
                 alt={food.name}
-                onError={(e) => (e.target.src = "https://placehold.co/200x150?text=No+Image")}
-                className="h-40 sm:h-48 w-full object-cover"
+                onError={(e) =>
+                  (e.target.src = "https://placehold.co/300x200?text=No+Image")
+                }
+                className="h-40 w-full object-cover"
               />
-              <div className="p-3 sm:p-4 text-sm sm:text-base">
-                <h4 className="font-bold">{food.name}</h4>
+              <div className="p-4 text-sm sm:text-base">
+                <h4 className="font-bold text-gray-800">{food.name}</h4>
                 <p className="text-gray-500">
                   {food.category} • {food.type}
                 </p>
                 <p className="text-red-600 font-bold mt-2">₹{food.price}</p>
 
-                <div className="flex flex-wrap justify-between items-center mt-2 gap-2">
+                <div className="flex justify-between items-center mt-3">
                   <button
-                    onClick={() => toggleAvailability(food._id, !food.available)}
-                    className={`${food.available ? "bg-green-500" : "bg-gray-400"} text-white px-3 py-1 rounded text-sm sm:text-base`}
+                    onClick={() =>
+                      toggleAvailability(food._id, !food.available)
+                    }
+                    className={`${
+                      food.available ? "bg-green-500" : "bg-gray-400"
+                    } text-white px-3 py-1 rounded text-sm`}
                   >
                     {food.available ? "Available" : "Out of Stock"}
                   </button>
@@ -321,16 +385,18 @@ const AdminPage = () => {
         </div>
       </div>
 
-      {/* Orders Section */}
-      <div className="bg-white shadow-lg rounded-lg p-4 sm:p-6 overflow-x-auto">
-        <h3 className="font-semibold text-lg sm:text-xl mb-4 text-gray-800">🧾 Live Orders</h3>
+      {/* ✅ Orders Section */}
+      <div className="bg-white shadow-lg rounded-lg p-4 sm:p-6">
+        <h3 className="font-semibold text-lg sm:text-xl mb-4 text-gray-800">
+          🧾 Live Orders
+        </h3>
         {orders.length === 0 ? (
-          <p>No orders yet</p>
+          <p className="text-gray-500">No orders yet</p>
         ) : (
           orders.map((order) => (
             <div
               key={order._id}
-              className={`border-b py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 transition-all duration-300 ${
+              className={`border-b py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 transition-all ${
                 highlightedOrder === order._id ? "bg-yellow-100" : ""
               }`}
             >
@@ -339,7 +405,7 @@ const AdminPage = () => {
                   Table {order.tableNumber}: {order.foodName} ({order.type})
                 </p>
                 <p className="text-gray-500">
-                  Qty: {order.quantity} | {order.category}
+                  Qty: {order.quantity} • {order.category}
                 </p>
                 <p>
                   Status:{" "}

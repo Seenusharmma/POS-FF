@@ -4,8 +4,7 @@ import { io } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 import { AuthContext } from "../context/authContext";
 
-// ✅ Use environment variable for backend base URL
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = "http://localhost:8000";
 
 const TOTAL_TABLES = 40;
 
@@ -25,38 +24,34 @@ const OrderPage = () => {
     try {
       const res = await axios.get(`${API_BASE}/api/foods`);
       setFoods(res.data);
-    } catch (err) {
-      console.error("❌ Failed to fetch foods:", err);
+    } catch {
       toast.error("Couldn't load food menu.");
     }
   };
 
-  // ✅ Fetch all orders (for booked tables)
+  // ✅ Fetch all orders (to check booked tables)
   const fetchAllOrders = async () => {
     try {
       const res = await axios.get(`${API_BASE}/api/orders`);
       setOrders(res.data);
       updateBookedTables(res.data);
-    } catch (err) {
-      console.error("❌ Failed to fetch orders:", err);
+    } catch {
       toast.error("Couldn't load orders.");
     }
   };
 
-  // ✅ Fetch only current user's orders
+  // ✅ Fetch only current user’s orders
   const fetchUserOrders = async () => {
-    if (!user) return;
     try {
       const res = await axios.get(`${API_BASE}/api/orders`);
-      const userOrders = res.data.filter((o) => o.userEmail === user.email);
+      const userOrders = res.data.filter((o) => o.userEmail === user?.email);
       setOrders(userOrders);
-    } catch (err) {
-      console.error("❌ Failed to fetch user orders:", err);
+    } catch {
       toast.error("Couldn't load your orders.");
     }
   };
 
-  // ✅ Update booked tables
+  // ✅ Update booked table numbers
   const updateBookedTables = (allOrders) => {
     const booked = allOrders
       .filter((order) => order.status !== "Completed")
@@ -71,16 +66,17 @@ const OrderPage = () => {
 
   // ✅ Delete completed order
   const deleteOrder = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this order?")) return;
+    const confirm = window.confirm("Are you sure you want to delete this order?");
+    if (!confirm) return;
 
     try {
       await axios.delete(`${API_BASE}/api/orders/${id}`);
       toast.success("🗑 Order deleted successfully!");
       setOrders((prev) => prev.filter((o) => o._id !== id));
-      socketRef.current?.emit("orderDeleted", id);
+
+      if (socketRef.current) socketRef.current.emit("orderDeleted", id);
       fetchAllOrders();
     } catch (err) {
-      console.error("❌ Error deleting order:", err);
       toast.error("Failed to delete order!");
     }
   };
@@ -108,7 +104,9 @@ const OrderPage = () => {
       }
     });
 
-    socket.on("orderDeleted", () => fetchAllOrders());
+    socket.on("orderDeleted", (deletedId) => {
+      fetchAllOrders();
+    });
 
     return () => {
       socket.off("newOrderPlaced");
@@ -172,10 +170,8 @@ const OrderPage = () => {
     ]);
 
   const removeFoodItem = (index) => {
-    if (orderItems.length === 1) {
-      toast.error("At least one food item required");
-      return;
-    }
+    if (orderItems.length === 1)
+      return toast.error("At least one food item required");
     setOrderItems(orderItems.filter((_, i) => i !== index));
   };
 
@@ -208,8 +204,7 @@ const OrderPage = () => {
       setTableNumber("");
       fetchAllOrders();
       fetchUserOrders();
-    } catch (err) {
-      console.error("❌ Failed to place order:", err);
+    } catch {
       toast.error("Failed to place order!");
     }
   };
@@ -276,7 +271,9 @@ const OrderPage = () => {
               type="number"
               min="1"
               value={item.quantity}
-              onChange={(e) => handleItemChange(index, "quantity", Number(e.target.value))}
+              onChange={(e) =>
+                handleItemChange(index, "quantity", Number(e.target.value))
+              }
               placeholder="Qty"
               className="border p-2 rounded text-sm sm:text-base"
             />

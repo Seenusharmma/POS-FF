@@ -1,153 +1,158 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import express from "express";
 import multer from "multer";
-import cloudinary from "../config/cloudinary.js";
+import { v2 as cloudinary } from "cloudinary";
 import Food from "../models/foodModel.js";
 
 const router = express.Router();
 
-// ✅ Use memory storage for direct Cloudinary uploads
+// ✅ Memory storage for direct Cloudinary upload
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-/* ================================
-   🥗 GET - Fetch All Foods
-================================ */
+// ================================
+// 🍽️ GET - Fetch All Foods
+// ================================
 router.get("/", async (req, res) => {
   try {
-    const foods = await Food.find();
-    res.json(foods);
-  } catch (error) {
-    console.error("❌ Error fetching foods:", error);
-    res.status(500).json({ message: "Server error" });
+    const foods = await Food.find().sort({ createdAt: -1 });
+    res.status(200).json(foods);
+  } catch (err) {
+    console.error("❌ Error fetching foods:", err);
+    res.status(500).json({ message: "Failed to fetch foods" });
   }
 });
 
-/* ================================
-   🥗 POST - Upload New Food (with auto-size optimization)
-================================ */
+// ================================
+// 🧑‍🍳 POST - Add New Food (with Cloudinary Upload)
+// ================================
 router.post("/", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: "Image file is required" });
+    const { name, category, type, price } = req.body;
 
-    // ⚙️ Automatically optimize image (resize + compress)
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder: "foods",
-        transformation: [
-          { width: 800, height: 800, crop: "limit" }, // max 800x800px
-          { quality: "auto", fetch_format: "auto" },  // auto compression & format
-        ],
-      },
-      async (error, result) => {
-        if (error) {
-          console.error("❌ Cloudinary Upload Error:", error);
-          return res.status(500).json({ message: "Upload failed" });
-        }
+    if (!name || !price) {
+      return res.status(400).json({ message: "Name and price are required" });
+    }
 
-        const newFood = new Food({
-          name: req.body.name,
-          category: req.body.category,
-          type: req.body.type,
-          price: req.body.price,
-          available: req.body.available ?? true,
-          image: result.secure_url,
-        });
+    let imageData = null;
 
-        await newFood.save();
-        res.status(201).json(newFood);
-      }
-    );
-
-    uploadStream.end(req.file.buffer);
-  } catch (error) {
-    console.error("❌ POST /foods error:", error);
-    res.status(500).json({ message: "Server error", error });
-  }
-});
-
-/* ================================
-   ✏️ PUT - Update Existing Food (auto-resize on new image)
-================================ */
-router.put("/:id", upload.single("image"), async (req, res) => {
-  try {
-    const food = await Food.findById(req.params.id);
-    if (!food) return res.status(404).json({ message: "Food not found" });
-
-    // ✅ If new image uploaded, replace Cloudinary image
+    // ✅ Upload image to Cloudinary (if provided)
     if (req.file) {
-      // Delete old image from Cloudinary
-      if (food.image && food.image.includes("cloudinary.com")) {
-        const parts = food.image.split("/");
-        const fileName = parts[parts.length - 1];
-        const publicId = fileName.split(".")[0];
-        await cloudinary.uploader.destroy(`foods/${publicId}`);
-      }
-
-      // ⚙️ Upload new image with optimization
-      const uploadStream = cloudinary.uploader.upload_stream(
+      const result = await cloudinary.uploader.upload_stream(
         {
-          folder: "foods",
-          transformation: [
-            { width: 800, height: 800, crop: "limit" },
-            { quality: "auto", fetch_format: "auto" },
-          ],
+          folder: "restaurant_foods",
+          transformation: [{ width: 800, height: 600, crop: "limit" }], // auto-resize
         },
         async (error, result) => {
-          if (error) return res.status(500).json({ message: "Upload failed" });
+          if (error) throw error;
+          imageData = {
+            url: result.secure_url,
+            public_id: result.public_id,
+          };
 
-          food.name = req.body.name || food.name;
-          food.category = req.body.category || food.category;
-          food.type = req.body.type || food.type;
-          food.price = req.body.price || food.price;
-          food.available = req.body.available ?? food.available;
-          food.image = result.secure_url;
+          const newFood = await Food.create({
+            name,
+            category,
+            type,
+            price,
+            image: imageData,
+          });
 
-          await food.save();
-          res.json(food);
+          // ✅ Emit to all clients (real-time update)
+          const io = req.app.get("io");
+          io.emit("newFoodAdded", newFood);
+
+          return res.status(201).json({ food: newFood });
         }
       );
 
-      uploadStream.end(req.file.buffer);
+      // ✅ Write file buffer to Cloudinary stream
+      result.end(req.file.buffer);
     } else {
-      // No image change — just update text fields
-      food.name = req.body.name || food.name;
-      food.category = req.body.category || food.category;
-      food.type = req.body.type || food.type;
-      food.price = req.body.price || food.price;
-      food.available = req.body.available ?? food.available;
-
-      await food.save();
-      res.json(food);
+      // If no image provided
+      const newFood = await Food.create({ name, category, type, price });
+      const io = req.app.get("io");
+      io.emit("newFoodAdded", newFood);
+      res.status(201).json({ food: newFood });
     }
-  } catch (error) {
-    console.error("❌ PUT /foods/:id error:", error);
-    res.status(500).json({ message: "Server error" });
+  } catch (err) {
+    console.error("❌ Error adding food:", err);
+    res.status(500).json({ message: "Failed to add food" });
   }
 });
 
-/* ================================
-   🗑️ DELETE - Remove Food + Image from Cloudinary
-================================ */
-router.delete("/:id", async (req, res) => {
+// ================================
+// ✏️ PUT - Update Food
+// ================================
+router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const food = await Food.findById(req.params.id);
-    if (!food) return res.status(404).json({ message: "Food not found" });
+    const { id } = req.params;
+    const { name, category, type, price } = req.body;
 
-    // ✅ Delete Cloudinary image if exists
-    if (food.image && food.image.includes("cloudinary.com")) {
-      const parts = food.image.split("/");
-      const fileName = parts[parts.length - 1];
-      const publicId = fileName.split(".")[0];
-      await cloudinary.uploader.destroy(`foods/${publicId}`);
+    let updatedFields = { name, category, type, price };
+
+    // ✅ If new image uploaded, replace old Cloudinary image
+    if (req.file) {
+      const food = await Food.findById(id);
+      if (food?.image?.public_id) {
+        await cloudinary.uploader.destroy(food.image.public_id);
+      }
+
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: "restaurant_foods",
+            transformation: [{ width: 800, height: 600, crop: "limit" }],
+          },
+          (error, result) => (error ? reject(error) : resolve(result))
+        );
+        uploadStream.end(req.file.buffer);
+      });
+
+      updatedFields.image = {
+        url: result.secure_url,
+        public_id: result.public_id,
+      };
     }
 
-    await Food.findByIdAndDelete(req.params.id);
-    res.json({ message: "Food deleted successfully" });
-  } catch (error) {
-    console.error("❌ DELETE /foods/:id error:", error);
+    const updatedFood = await Food.findByIdAndUpdate(id, updatedFields, {
+      new: true,
+    });
+
+    const io = req.app.get("io");
+    io.emit("foodUpdated", updatedFood);
+
+    res.status(200).json({ food: updatedFood });
+  } catch (err) {
+    console.error("❌ Error updating food:", err);
+    res.status(500).json({ message: "Failed to update food" });
+  }
+});
+
+// ================================
+// 🗑️ DELETE - Remove Food (with Cloudinary image delete)
+// ================================
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const food = await Food.findById(id);
+
+    if (!food) {
+      return res.status(404).json({ message: "Food not found" });
+    }
+
+    // ✅ Delete image from Cloudinary (if exists)
+    if (food.image?.public_id) {
+      await cloudinary.uploader.destroy(food.image.public_id);
+    }
+
+    await Food.findByIdAndDelete(id);
+
+    const io = req.app.get("io");
+    io.emit("foodDeleted", id);
+
+    res.status(200).json({ message: "Food deleted successfully" });
+  } catch (err) {
+    console.error("❌ Error deleting food:", err);
     res.status(500).json({ message: "Failed to delete food" });
   }
 });

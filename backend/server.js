@@ -3,35 +3,41 @@ dotenv.config();
 
 import express from "express";
 import cors from "cors";
-
 import { connectDB } from "./config/db.js";
 import foodRoutes from "./routes/foodRoute.js";
 import orderRoutes from "./routes/orderRoute.js";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import { v2 as cloudinary } from "cloudinary";
 import path from "path";
 import { fileURLToPath } from "url";
-
-
 
 // ✅ __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ Initialize Express + HTTP server
+// ✅ Initialize Express & HTTP Server
 const app = express();
 const server = createServer(app);
 
 // ✅ Setup Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: "http://localhost:5173",
     methods: ["GET", "POST", "PUT", "DELETE"],
   },
 });
 
-// ✅ Connect to MongoDB
+// ✅ Connect MongoDB
 connectDB();
+
+// ✅ Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+console.log("✅ Cloudinary connected:", cloudinary.config().cloud_name);
 
 // ✅ Middleware
 app.use(
@@ -43,17 +49,17 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Serve uploads if used locally (not needed for Cloudinary, but safe fallback)
+// ✅ Local static fallback (dev only)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// ✅ Attach Socket.IO instance globally
+// ✅ Attach socket to app (for real-time events)
 app.set("io", io);
 
-// ✅ Routes
+// ✅ API Routes
 app.use("/api/foods", foodRoutes);
 app.use("/api/orders", orderRoutes);
 
-// ✅ Realtime Socket.IO Events
+// ✅ Socket.IO Event Listeners
 io.on("connection", (socket) => {
   console.log("🟢 Client connected:", socket.id);
 
@@ -65,8 +71,8 @@ io.on("connection", (socket) => {
     io.emit("foodUpdated", food);
   });
 
-  socket.on("foodDeleted", (deletedFood) => {
-    io.emit("foodDeleted", deletedFood);
+  socket.on("foodDeleted", (id) => {
+    io.emit("foodDeleted", id);
   });
 
   socket.on("disconnect", () => {
@@ -74,23 +80,23 @@ io.on("connection", (socket) => {
   });
 });
 
-// ✅ Serve React frontend (for production on Render/Vercel)
-const frontendPath = path.join(__dirname, "frontend", "dist");
+// ✅ Serve Frontend (Render/Vercel support)
 if (process.env.NODE_ENV === "production") {
+  const frontendPath = path.join(__dirname, "frontend", "dist");
   app.use(express.static(frontendPath));
-  app.get("*", (req, res) => {
-    res.sendFile(path.resolve(frontendPath, "index.html"));
+  app.use((req, res) => {
+    res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
 
-// ✅ Global Error Handler (for cleaner logs)
+// ✅ Global Error Handler
 app.use((err, req, res, next) => {
   console.error("❌ Server Error:", err.message);
   res.status(500).json({ message: "Internal Server Error" });
 });
 
 // ✅ Start Server
-const PORT =  8000;
-server.listen(PORT, () =>
-  console.log(`✅ Server running on port ${PORT}`)
-);
+const PORT = process.env.PORT || 8000;
+server.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+});
