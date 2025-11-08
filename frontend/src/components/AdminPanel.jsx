@@ -4,7 +4,7 @@ import { io } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 
 // ✅ Correct way to read env variable
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = import.meta.env.API_BASE || "http://localhost:8000";
 
 const AdminPanel = () => {
   const [foods, setFoods] = useState([]);
