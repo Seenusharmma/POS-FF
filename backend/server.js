@@ -12,21 +12,13 @@ import { v2 as cloudinary } from "cloudinary";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// ✅ __dirname for ES Modules
+// ✅ __dirname setup for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ Initialize Express & HTTP Server
+// ✅ Initialize Express & HTTP server
 const app = express();
 const server = createServer(app);
-
-// ✅ Setup Socket.IO with CORS
-const io = new Server(server, {
-  cors: {
-    origin: "https://food-fantasy-cgu.vercel.app/",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-  },
-});
 
 // ✅ Connect MongoDB
 connectDB();
@@ -39,27 +31,43 @@ cloudinary.config({
 });
 console.log("✅ Cloudinary connected:", cloudinary.config().cloud_name);
 
-// ✅ Middleware
+// ✅ Setup Socket.IO with secure CORS
+const io = new Server(server, {
+  cors: {
+    origin: [
+      "http://localhost:5173",                // for local dev
+      "https://food-fantasy-cgu.vercel.app",  // for production frontend
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  },
+});
+
+// ✅ Express Middleware
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: [
+      "http://localhost:5173",
+      "https://food-fantasy-cgu.vercel.app",
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Local static fallback (dev only)
+// ✅ Serve local uploads (only used in dev)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// ✅ Attach socket to app (for real-time events)
+// ✅ Attach socket instance globally
 app.set("io", io);
 
 // ✅ API Routes
 app.use("/api/foods", foodRoutes);
 app.use("/api/orders", orderRoutes);
 
-// ✅ Socket.IO Event Listeners
+// ✅ Socket.IO Realtime Events
 io.on("connection", (socket) => {
   console.log("🟢 Client connected:", socket.id);
 
@@ -80,11 +88,12 @@ io.on("connection", (socket) => {
   });
 });
 
-// ✅ Serve Frontend (Render/Vercel support)
+// ✅ Serve Frontend (Render-compatible)
 if (process.env.NODE_ENV === "production") {
-  const frontendPath = path.join(__dirname, "frontend", "dist");
+  // Use "../frontend/dist" because your build is outside backend folder
+  const frontendPath = path.resolve(__dirname, "../frontend/dist");
   app.use(express.static(frontendPath));
-  app.use((req, res) => {
+  app.get("*", (req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
@@ -98,5 +107,5 @@ app.use((err, req, res, next) => {
 // ✅ Start Server
 const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT} — Environment: ${process.env.NODE_ENV}`);
 });
