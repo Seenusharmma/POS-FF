@@ -3,7 +3,7 @@ import axios from "axios";
 import { io } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://pos-ff-1.onrender.com";
 const socket = io(API_BASE, { transports: ["websocket"], reconnection: true });
 
 const AdminPage = () => {

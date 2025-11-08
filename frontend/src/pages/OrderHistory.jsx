@@ -13,7 +13,7 @@ const OrderHistory = () => {
     if (!user) return;
     setLoading(true);
     try {
-      const res = await axios.get("http://localhost:8000/api/orders");
+      const res = await axios.get("https://pos-ff-1.onrender.com/api/orders");
       const userOrders = res.data.filter(
         (o) => o.userEmail === user.email && o.status === "Completed"
       );

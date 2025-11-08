@@ -5,7 +5,7 @@ import toast, { Toaster } from "react-hot-toast";
 import { AiOutlineCloudUpload } from "react-icons/ai";
 
 // ✅ Use environment variable
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://pos-ff-1.onrender.com";
 
 const AdminPanel = () => {
   const [foods, setFoods] = useState([]);

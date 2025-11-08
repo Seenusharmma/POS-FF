@@ -4,7 +4,7 @@ import { io } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 import { AuthContext } from "../context/authContext";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://pos-ff-1.onrender.com";
 
 const TOTAL_TABLES = 40;
 

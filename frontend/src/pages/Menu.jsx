@@ -16,7 +16,7 @@ const Menu = () => {
   useEffect(() => {
     const fetchFoods = async () => {
       try {
-        const res = await axios.get("http://localhost:8000/api/foods");
+        const res = await axios.get("https://pos-ff-1.onrender.com/api/foods");
         setFoods(res.data);
         setFilteredFoods(res.data);
       } catch (err) {
